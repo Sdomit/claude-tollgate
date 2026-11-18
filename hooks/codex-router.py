@@ -1,4 +1,5 @@
 import json
+import os
 import re
 import sys
 
@@ -25,8 +26,7 @@ CLAUDE_ONLY = re.compile(
 
 RULES = (
     "ROUTER RULES (global hook, always apply):\n"
-    "1. Obey ~/.claude/CLAUDE.md every turn: no preamble, terse, verify before asserting, "
-    "<=4 subagents.\n"
+    "1. Obey the user's CLAUDE.md every turn.\n"
     "2. Codex-first: any self-contained coding job (new script/function, tests, mechanical "
     "refactor, bug fix with clear repro, boilerplate, format/lint fixes) goes to Codex, not "
     "your own tokens. Run:\n"
@@ -35,7 +35,7 @@ RULES = (
     "   Then read ONLY codex-out.md + `git status --short` (it lists new files too); review "
     "`git diff`, run the project's tests, do not re-do the work. Never add sandbox-bypass flags.\n"
     "3. Keep for yourself: planning, design, review of Codex output, cross-file judgment, "
-    "anything needing this chat's context, Blender/UE/USD MCP work, browser/email/artifacts.\n"
+    "anything needing this chat's context, work done through MCP tools or the browser.\n"
     "4. Brief Codex with paths, acceptance check, and 'no explanations'. One codex call per "
     "task; batch small fixes."
 )
@@ -55,7 +55,11 @@ def main():
     if prompt.startswith("/"):
         return
 
-    ctx = RULES
+    try:  # your own rules replace the defaults
+        with open(os.path.expanduser("~/.claude/tollgate-rules.md"), encoding="utf-8") as f:
+            ctx = f.read().strip() or RULES
+    except OSError:
+        ctx = RULES
     if codexable(prompt):
         ctx += "\n>> THIS PROMPT LOOKS CODEX-ABLE: delegate it via rule 2 unless it clearly is not."
 

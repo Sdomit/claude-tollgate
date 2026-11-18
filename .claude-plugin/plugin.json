@@ -1,0 +1,68 @@
+{
+  "name": "tollgate",
+  "version": "1.0.0",
+  "description": "Routes coding work from Claude Code to Codex and blocks the common ways a session wastes tokens.",
+  "author": {
+    "name": "Sdomit",
+    "url": "https://github.com/Sdomit"
+  },
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"${CLAUDE_PLUGIN_ROOT}/hooks/codex-router.py\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"${CLAUDE_PLUGIN_ROOT}/hooks/token-guard.py\" read",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"${CLAUDE_PLUGIN_ROOT}/hooks/token-guard.py\" pre",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"${CLAUDE_PLUGIN_ROOT}/hooks/token-guard.py\" codex",
+            "timeout": 60,
+            "statusMessage": "Checking Codex output"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"${CLAUDE_PLUGIN_ROOT}/hooks/token-guard.py\" stop",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

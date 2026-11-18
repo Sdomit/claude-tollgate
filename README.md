@@ -1,74 +1,106 @@
-# Claude Code token hooks
+# Tollgate
 
-Global hooks that keep Claude on the best model, route coding work to Codex, and enforce CLAUDE.md token rules.
+**Send the coding to Codex. Keep Claude for the thinking.**
 
-## Files
+Tollgate is a small set of Claude Code hooks. On every prompt it reminds Claude to hand self-contained coding jobs to the Codex CLI, then it checks what Codex changed, and it blocks the most common ways a session burns tokens for nothing.
 
-| File | Event | What it does |
-|------|-------|--------------|
-| `hooks/codex-router.py` | `UserPromptSubmit` | Injects router rules every prompt. Flags a prompt as "Codex-able" when it has a coding verb and a code noun and no Claude-only word (plan, design, review, research, hooks, skills, plugins, Blender, Unreal/UE, browser, ...). Skips `/` commands. |
-| `hooks/token-guard.py read` | `PreToolUse` (Read) | Denies a Read of a file over 100KB unless `limit` is 1 to 2000. Images, PDF, EXR, TIFF exempt. |
-| `hooks/token-guard.py pre` | `PreToolUse` (Bash, PowerShell) | Denies a Codex command that carries a sandbox-bypass flag (`--dangerously-*`, `--yolo`, `danger-full-access`). |
-| `hooks/token-guard.py codex` | `PostToolUse` (Bash, PowerShell) | After `codex exec`: logs time, mode and folder to `~/.claude/hooks/codex-usage.log`, then feeds back `git status --short` (20 lines) for the folder Codex worked in (`-C`, a leading `cd`, else the session folder). Background runs get a reminder instead, because nothing has changed yet. |
-| `hooks/token-guard.py stop` | `Stop` | Warns if Claude edited 3+ code files itself since the last stop with no successful Codex call. Scratch files, `.md/.txt/.rst/.log` and `~/.claude` do not count. Subagent edits and Codex calls do. |
-| `tests/test_hooks.py` | | Regression checks for all of the above. |
+Two Python files, standard library only, no background service.
 
-## Requirements
+## What it does
 
-- Python 3.10+ on PATH as `python` (tested on 3.11.9)
-- Codex CLI (`codex exec`), tested on 0.169.0
-- git
+| When | Hook | Effect |
+|------|------|--------|
+| You send a prompt | Router | Adds four short routing rules to Claude's context. Flags prompts that look like pure coding work as "Codex-able". |
+| Claude reads a file | Read guard | Blocks a full read of any text file over 100KB. Claude has to grep, or read a window of up to 2000 lines. |
+| Claude runs a shell command | Sandbox guard | Blocks a Codex command that switches off the sandbox or approvals (`--dangerously-*`, `--yolo`, `danger-full-access`). |
+| A `codex exec` finishes | Post-check | Gives Claude `git status --short` for the folder Codex worked in, so it reviews the change instead of redoing it. Logs each run. |
+| Claude finishes a turn | Stop check | Warns you when Claude edited three or more code files itself without calling Codex. |
 
 ## Install
 
-1. Copy `hooks/*.py` to `%USERPROFILE%\.claude\hooks\`.
-2. Merge into `%USERPROFILE%\.claude\settings.json` (keep existing entries; replace `<USER>`):
+Requirements: Claude Code, the [Codex CLI](https://github.com/openai/codex), git, and Python 3.10+ available as `python`.
+
+In Claude Code:
+
+```
+/plugin marketplace add Sdomit/claude-tollgate
+/plugin install tollgate@tollgate
+```
+
+Start a new session. That is all.
+
+<details>
+<summary>Manual install, without the plugin system</summary>
+
+Copy `hooks/*.py` to `~/.claude/hooks/` and merge this into `~/.claude/settings.json`, replacing `<HOOKS>` with the full path to that folder:
 
 ```json
 {
-  "model": "best",
-  "effortLevel": "xhigh",
-  "permissions": { "allow": ["Bash(codex exec *)", "PowerShell(codex exec *)"] },
   "hooks": {
     "UserPromptSubmit": [
-      { "hooks": [{ "type": "command", "command": "python",
-        "args": ["C:\\Users\\<USER>\\.claude\\hooks\\codex-router.py"], "timeout": 5 }] }
+      { "hooks": [{ "type": "command", "command": "python", "args": ["<HOOKS>/codex-router.py"], "timeout": 5 }] }
     ],
     "PreToolUse": [
-      { "matcher": "Read", "hooks": [{ "type": "command", "command": "python",
-        "args": ["C:\\Users\\<USER>\\.claude\\hooks\\token-guard.py", "read"], "timeout": 5 }] },
-      { "matcher": "Bash|PowerShell", "hooks": [{ "type": "command", "command": "python",
-        "args": ["C:\\Users\\<USER>\\.claude\\hooks\\token-guard.py", "pre"], "timeout": 5 }] }
+      { "matcher": "Read", "hooks": [{ "type": "command", "command": "python", "args": ["<HOOKS>/token-guard.py", "read"], "timeout": 5 }] },
+      { "matcher": "Bash|PowerShell", "hooks": [{ "type": "command", "command": "python", "args": ["<HOOKS>/token-guard.py", "pre"], "timeout": 5 }] }
     ],
     "PostToolUse": [
-      { "matcher": "Bash|PowerShell", "hooks": [{ "type": "command", "command": "python",
-        "args": ["C:\\Users\\<USER>\\.claude\\hooks\\token-guard.py", "codex"], "timeout": 60,
-        "statusMessage": "Checking Codex output" }] }
+      { "matcher": "Bash|PowerShell", "hooks": [{ "type": "command", "command": "python", "args": ["<HOOKS>/token-guard.py", "codex"], "timeout": 60 }] }
     ],
     "Stop": [
-      { "hooks": [{ "type": "command", "command": "python",
-        "args": ["C:\\Users\\<USER>\\.claude\\hooks\\token-guard.py", "stop"], "timeout": 10 }] }
+      { "hooks": [{ "type": "command", "command": "python", "args": ["<HOOKS>/token-guard.py", "stop"], "timeout": 10 }] }
     ]
   }
 }
 ```
 
-3. Start a new Claude Code session so hooks load.
+Use one install method, not both, or every hook runs twice.
+</details>
 
-## Test
+## How a delegated task flows
 
-```powershell
-python tests\test_hooks.py
+1. You ask for something like "add retry logic to downloader.py".
+2. The router marks the prompt as Codex-able. Claude writes a brief and runs `codex exec -s workspace-write -C <project> ...`.
+3. The sandbox guard lets the command through because it keeps Codex sandboxed.
+4. When Codex returns, the post-check lists the changed and new files. Claude reviews the diff and runs your tests.
+5. If Claude skips Codex and edits several files itself, the Stop check tells you.
+
+## Configure
+
+**Your own routing rules.** Create `~/.claude/tollgate-rules.md`. Its text replaces the built-in rules on every prompt. Keep it short: it is added to every prompt you send.
+
+**Run Codex without a permission prompt (optional).** Add this to `~/.claude/settings.json`. Sandboxed runs are then pre-approved, in any folder Claude passes with `-C`; the sandbox guard still blocks the bypass flags.
+
+```json
+{ "permissions": { "allow": ["Bash(codex exec *)", "PowerShell(codex exec *)"] } }
 ```
 
-Prints `7 test groups passed`. It builds throwaway git repos in the temp folder and never runs the real `codex`.
+**Usage log.** Each Codex run adds a line (time, foreground or background, folder) to `~/.claude/hooks/codex-usage.log`. No prompt text is stored.
 
 ## Limits
 
-- The hooks are budget nudges, not a security boundary. They fail open: if a script crashes, the tool call goes ahead. The Read guard does not cover shell reads (`cat`, `Get-Content`).
-- The allow rules still pre-approve sandboxed `codex exec` runs, in any folder passed with `-C`. Remove them if every Codex call should ask first. The `pre` hook only stops bypass flags written literally in the command.
-- The post-check does not run tests. It used to run pytest, which executed unreviewed repo code with full user rights.
-- `codex exec` is detected at a command position (after `&&`, `;`, `|`, a newline, wrappers such as `rtk` or `timeout`, env assignments, or a path). It is not detected with global flags before `exec`, or nested in a quoted string (`bash -c "codex exec ..."`).
-- The Stop check reads the transcript file, which Claude Code writes asynchronously, so the last tool calls of a turn can be missing. Subagent transcripts are found through an undocumented folder layout.
-- `effortLevel: xhigh` is the highest value settings accept.
-- These are copies. Live versions run from `~/.claude/hooks`; edit there, then re-copy here.
+- These hooks are nudges, not a security boundary. They fail open: if a script crashes, the tool call goes ahead. The Read guard does not cover shell reads such as `cat`.
+- The sandbox guard only stops bypass flags written literally in the command.
+- The post-check does not run tests. Running a repo's tests automatically would execute code nobody has reviewed.
+- `codex exec` is detected after `&&`, `;`, `|`, a newline, wrappers such as `timeout`, env assignments or a path. It is not detected with global flags before `exec`, or nested in a quoted string (`bash -c "codex exec ..."`).
+- The Stop check reads the session transcript, which Claude Code writes asynchronously, so the last tool calls of a turn can be missing. It finds subagent transcripts through an undocumented folder layout.
+- Each shell command pays for two short Python starts, about 0.15s each on Windows.
+- Developed and used on Windows 11. CI also runs the tests on Linux.
+
+## Develop
+
+```
+python tests/test_hooks.py
+```
+
+The tests build throwaway git repos in the temp folder and never call the real `codex`. Issues and pull requests are welcome.
+
+## Uninstall
+
+```
+/plugin uninstall tollgate@tollgate
+```
+
+## License
+
+MIT

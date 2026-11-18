@@ -165,7 +165,8 @@ def test_stop_check():
     assert "3 code files" in stop("warn", [user("go"), CODE3])
     assert stop("docs", [user("go"), edits(*scratch, "C:/proj/NOTES.md", "C:/proj/a.py")]) == ""
     assert stop("delegated", [user("go"), CODE3, calls(("Bash", {"command": 'cd "C:/p" && codex exec "x"'}))]) == ""
-    assert stop("spellings", [user("go"), edits("C:/p/a.py", "C:\\p\\a.py", "c:/p/a.py", "C:/p/b.py")]) == ""
+    if os.name == "nt":
+        assert stop("spellings", [user("go"), edits("C:/p/a.py", "C:\\p\\a.py", "c:/p/a.py", "C:/p/b.py")]) == ""
     denied = {"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "t0", "is_error": True}]}}
     assert stop("failed", [user("go"), CODE3, denied]) == ""
     assert "3 code files" in stop("injected", [user("go"), CODE3, user("<task-notification>done</task-notification>")])
@@ -192,6 +193,9 @@ def test_router():
     assert "CODEX-ABLE" in ctx("write a regex parser")
     assert "ROUTER RULES" in ctx("مرحبا café") and "CODEX-ABLE" not in ctx("مرحبا café")
     assert ctx("/model") == ""
+    with open(os.path.join(HOME, ".claude", "tollgate-rules.md"), "w", encoding="utf-8") as f:
+        f.write("MY RULES")
+    assert "MY RULES" in ctx("hi") and "ROUTER RULES" not in ctx("hi")
 
 
 def test_dispatch():

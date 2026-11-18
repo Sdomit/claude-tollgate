@@ -1,0 +1,17 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "tollgate",
+  "description": "Routes coding work from Claude Code to Codex and blocks the common ways a session wastes tokens.",
+  "owner": {
+    "name": "Sdomit",
+    "url": "https://github.com/Sdomit"
+  },
+  "plugins": [
+    {
+      "name": "tollgate",
+      "description": "Codex-first routing, a large-file Read guard, a Codex sandbox guard and a post-run change check.",
+      "source": "./",
+      "category": "productivity"
+    }
+  ]
+}
