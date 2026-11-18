@@ -6,6 +6,16 @@ Tollgate is a small set of Claude Code hooks. On every prompt it reminds Claude 
 
 Two Python files, standard library only, no background service.
 
+![Tollgate hooks reacting to a prompt, a Codex run, a sandbox bypass, a large read and unrouted edits](docs/demo.gif)
+
+<details>
+<summary>Same thing as a still image</summary>
+
+![Output of all five Tollgate hooks](docs/screenshot.png)
+</details>
+
+Both images are the hooks' real output, rendered by `docs/demo.py`.
+
 ## What it does
 
 | When | Hook | Effect |
