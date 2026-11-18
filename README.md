@@ -6,16 +6,18 @@ Global hooks that keep Claude on the best model, route coding work to Codex, and
 
 | File | Event | What it does |
 |------|-------|--------------|
-| `hooks/codex-router.py` | `UserPromptSubmit` | Injects router rules every prompt. Flags coding prompts as "Codex-able" unless they hit the Claude-only list (plan, review, Blender, UE, USD, hooks, ...). Skips `/` commands. |
-| `hooks/token-guard.py read` | `PreToolUse` (Read) | Denies a full Read of any file over 100KB. Allowed with `limit`/`pages`. Images, PDF, EXR, TIFF exempt. |
-| `hooks/token-guard.py codex` | `PostToolUse` (Bash, PowerShell) | After `codex exec`: logs to `~/.claude/hooks/codex-usage.log`, feeds back `git diff --stat` (20 lines) and `pytest -q -x` tail (15 lines) if tests exist. |
-| `hooks/token-guard.py stop` | `Stop` | Warns if Claude edited 3+ files itself in one turn with no Codex call. |
+| `hooks/codex-router.py` | `UserPromptSubmit` | Injects router rules every prompt. Flags a prompt as "Codex-able" when it has a coding verb and a code noun and no Claude-only word (plan, design, review, research, hooks, skills, plugins, Blender, Unreal/UE, browser, ...). Skips `/` commands. |
+| `hooks/token-guard.py read` | `PreToolUse` (Read) | Denies a Read of a file over 100KB unless `limit` is 1 to 2000. Images, PDF, EXR, TIFF exempt. |
+| `hooks/token-guard.py pre` | `PreToolUse` (Bash, PowerShell) | Denies a Codex command that carries a sandbox-bypass flag (`--dangerously-*`, `--yolo`, `danger-full-access`). |
+| `hooks/token-guard.py codex` | `PostToolUse` (Bash, PowerShell) | After `codex exec`: logs time, mode and folder to `~/.claude/hooks/codex-usage.log`, then feeds back `git status --short` (20 lines) for the folder Codex worked in (`-C`, a leading `cd`, else the session folder). Background runs get a reminder instead, because nothing has changed yet. |
+| `hooks/token-guard.py stop` | `Stop` | Warns if Claude edited 3+ code files itself since the last stop with no successful Codex call. Scratch files, `.md/.txt/.rst/.log` and `~/.claude` do not count. Subagent edits and Codex calls do. |
+| `tests/test_hooks.py` | | Regression checks for all of the above. |
 
 ## Requirements
 
-- Python 3.12 on PATH as `python`
+- Python 3.10+ on PATH as `python` (tested on 3.11.9)
 - Codex CLI (`codex exec`), tested on 0.169.0
-- git, and pytest in projects that have tests
+- git
 
 ## Install
 
@@ -34,11 +36,13 @@ Global hooks that keep Claude on the best model, route coding work to Codex, and
     ],
     "PreToolUse": [
       { "matcher": "Read", "hooks": [{ "type": "command", "command": "python",
-        "args": ["C:\\Users\\<USER>\\.claude\\hooks\\token-guard.py", "read"], "timeout": 5 }] }
+        "args": ["C:\\Users\\<USER>\\.claude\\hooks\\token-guard.py", "read"], "timeout": 5 }] },
+      { "matcher": "Bash|PowerShell", "hooks": [{ "type": "command", "command": "python",
+        "args": ["C:\\Users\\<USER>\\.claude\\hooks\\token-guard.py", "pre"], "timeout": 5 }] }
     ],
     "PostToolUse": [
       { "matcher": "Bash|PowerShell", "hooks": [{ "type": "command", "command": "python",
-        "args": ["C:\\Users\\<USER>\\.claude\\hooks\\token-guard.py", "codex"], "timeout": 300,
+        "args": ["C:\\Users\\<USER>\\.claude\\hooks\\token-guard.py", "codex"], "timeout": 60,
         "statusMessage": "Checking Codex output" }] }
     ],
     "Stop": [
@@ -54,13 +58,17 @@ Global hooks that keep Claude on the best model, route coding work to Codex, and
 ## Test
 
 ```powershell
-'{"prompt":"write a regex parser"}' | python hooks\codex-router.py
-'{"tool_input":{"file_path":"C:\\big.log"}}' | python hooks\token-guard.py read
+python tests\test_hooks.py
 ```
 
-First prints router rules with the "CODEX-ABLE" line; second prints a deny if the file is over 100KB.
+Prints `7 test groups passed`. It builds throwaway git repos in the temp folder and never runs the real `codex`.
 
-## Notes
+## Limits
 
+- The hooks are budget nudges, not a security boundary. They fail open: if a script crashes, the tool call goes ahead. The Read guard does not cover shell reads (`cat`, `Get-Content`).
+- The allow rules still pre-approve sandboxed `codex exec` runs, in any folder passed with `-C`. Remove them if every Codex call should ask first. The `pre` hook only stops bypass flags written literally in the command.
+- The post-check does not run tests. It used to run pytest, which executed unreviewed repo code with full user rights.
+- `codex exec` is detected at a command position (after `&&`, `;`, `|`, a newline, wrappers such as `rtk` or `timeout`, env assignments, or a path). It is not detected with global flags before `exec`, or nested in a quoted string (`bash -c "codex exec ..."`).
+- The Stop check reads the transcript file, which Claude Code writes asynchronously, so the last tool calls of a turn can be missing. Subagent transcripts are found through an undocumented folder layout.
 - `effortLevel: xhigh` is the highest value settings accept.
 - These are copies. Live versions run from `~/.claude/hooks`; edit there, then re-copy here.
